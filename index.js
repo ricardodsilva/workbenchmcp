@@ -7,8 +7,13 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import sql from 'mssql';
-import { readFile } from 'fs/promises';
+import { readFile, writeFile, appendFile } from 'fs/promises';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { createTwoFilesPatch } from 'diff';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const MEMORY_FILE = join(__dirname, 'memory.txt');
 
 const sqlConfig = {
   server: process.env.MSSQL_SERVER,
@@ -97,6 +102,44 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['file_a', 'file_b'],
       },
     },
+    {
+      name: 'search_translation',
+      description:
+        'Search the t_messages table for a translation by similar text (used in M("defaultText","key") or T.M("defaultText","key") calls). ' +
+        'Searches all text columns with a LIKE match and returns all columns for matching rows. ' +
+        'If no match is found, returns "x,x,x" to indicate the key is unknown.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          text: {
+            type: 'string',
+            description: 'The default text or partial text to search for in t_messages.',
+          },
+        },
+        required: ['text'],
+      },
+    },
+    {
+      name: 'memory',
+      description:
+        'A shared persistent memory file (memory.txt) that survives across sessions and is accessible from any LLM (Claude, Copilot, etc.). ' +
+        'Use this to store and retrieve context, decisions, notes, or anything useful to remember between conversations.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['read', 'write', 'append'],
+            description: '"read" returns the full memory contents. "write" overwrites the entire file. "append" adds text to the end.',
+          },
+          text: {
+            type: 'string',
+            description: 'The text to write or append. Not required for "read".',
+          },
+        },
+        required: ['action'],
+      },
+    },
   ],
 }));
 
@@ -119,8 +162,36 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
   }
 
+  // ── memory ───────────────────────────────────────────────────────────────────
+  if (name === 'memory') {
+    const { action, text: memText } = args;
+    try {
+      if (action === 'read') {
+        let content;
+        try {
+          content = await readFile(MEMORY_FILE, 'utf8');
+          if (!content.trim()) content = '(memory is empty)';
+        } catch {
+          content = '(memory is empty)';
+        }
+        return { content: [{ type: 'text', text: content }] };
+      }
+      if (action === 'write') {
+        await writeFile(MEMORY_FILE, memText ?? '', 'utf8');
+        return { content: [{ type: 'text', text: 'Memory written.' }] };
+      }
+      if (action === 'append') {
+        await appendFile(MEMORY_FILE, '\n' + (memText ?? ''), 'utf8');
+        return { content: [{ type: 'text', text: 'Memory updated.' }] };
+      }
+      return { content: [{ type: 'text', text: `Unknown action: ${action}` }], isError: true };
+    } catch (err) {
+      return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true };
+    }
+  }
+
   // ── SQL tools ────────────────────────────────────────────────────────────────
-  if (!['execute_sql', 'get_table_schema', 'search_schema'].includes(name)) {
+  if (!['execute_sql', 'get_table_schema', 'search_schema', 'search_translation'].includes(name)) {
     throw new Error(`Unknown tool: ${name}`);
   }
 
@@ -208,6 +279,41 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       if (idxLines.length) out += `\n\nINDEXES\n${idxLines.join('\n')}`;
 
       return { content: [{ type: 'text', text: out }] };
+    } catch (err) {
+      return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true };
+    } finally {
+      await pool.close();
+    }
+  }
+
+  // ── search_translation ───────────────────────────────────────────────────────
+  if (name === 'search_translation') {
+    const { text } = args;
+    const pool = await sql.connect(sqlConfig);
+    try {
+      const colsResult = await pool.request().query(`
+        SELECT COLUMN_NAME
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_NAME = 't_messages'
+          AND DATA_TYPE IN ('varchar','nvarchar','char','nchar','text','ntext')
+      `);
+
+      if (colsResult.recordset.length === 0) {
+        return { content: [{ type: 'text', text: 'Table t_messages not found or has no text columns.' }], isError: true };
+      }
+
+      const textCols = colsResult.recordset.map(r => r.COLUMN_NAME);
+      const whereClause = textCols.map(col => `[${col}] LIKE @search`).join(' OR ');
+
+      const r = pool.request();
+      r.input('search', sql.NVarChar, `%${text}%`);
+      const result = await r.query(`SELECT TOP 10 * FROM t_messages WHERE ${whereClause}`);
+
+      if (result.recordset.length === 0) {
+        return { content: [{ type: 'text', text: 'x,x,x' }] };
+      }
+
+      return { content: [{ type: 'text', text: JSON.stringify(result.recordset, null, 2) }] };
     } catch (err) {
       return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true };
     } finally {

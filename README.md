@@ -10,6 +10,8 @@ A personal MCP (Model Context Protocol) server with tools for day-to-day develop
 | `get_table_schema` | Get columns, types, primary keys, foreign keys, and indexes for a table. |
 | `search_schema` | Search all tables and columns by keyword across the entire database. |
 | `diff_files` | Compare two local files and return a unified diff. |
+| `search_translation` | Search `t_messages` by similar text (for `M("text","key")` / `T.M(...)` usages). Returns all columns for matching rows, or `x,x,x` if not found. |
+| `memory` | Read, write, or append to a shared `memory.txt` file — persistent across sessions and usable from any LLM. |
 
 ---
 
