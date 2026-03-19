@@ -83,38 +83,42 @@ claude mcp list
 
 ---
 
-## Registering with VS Code (GitHub Copilot / Continue / MCP-compatible extension)
+## Registering with VS Code (GitHub Copilot)
 
-### Continue extension
+MCP servers for GitHub Copilot are configured in a dedicated file, **not** in `settings.json`.
 
-Open your Continue config file (`~/.continue/config.json`) and add under `"mcpServers"`:
+### Global (all projects)
 
-```json
-{
-  "mcpServers": [
-    {
-      "name": "mymcp",
-      "command": "node",
-      "args": ["/absolute/path/to/mymcp/index.js"]
-    }
-  ]
-}
-```
-
-### VS Code settings (for extensions that read `settings.json`)
-
-Open your user `settings.json` (`Ctrl+Shift+P` > "Open User Settings (JSON)") and add:
+Edit `%APPDATA%\Code\User\mcp.json` (Windows) or `~/.config/Code/User/mcp.json` (Linux/macOS):
 
 ```json
 {
-  "mcp.servers": {
+  "servers": {
     "mymcp": {
+      "type": "stdio",
       "command": "node",
-      "args": ["/absolute/path/to/mymcp/index.js"]
+      "args": ["C:/Users/Ricardo/Desktop/mymcp/index.js"],
+      "env": {
+        "MSSQL_SERVER": "your-server",
+        "MSSQL_DATABASE": "your-db",
+        "MSSQL_USER": "your-user",
+        "MSSQL_PASSWORD": "your-password",
+        "MSSQL_PORT": "1433",
+        "MSSQL_ENCRYPT": "true",
+        "MSSQL_TRUST_CERT": "true"
+      }
     }
   }
 }
 ```
+
+> Credentials go directly in `env` here because VS Code launches the process directly and does not load the `.env` file.
+
+### Per-project
+
+Create `.vscode/mcp.json` in the project root with the same structure as above.
+
+After saving, restart VS Code and verify via `Ctrl+Shift+P` → "MCP: List Servers".
 
 ---
 
