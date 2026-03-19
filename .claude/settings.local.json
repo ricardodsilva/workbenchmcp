@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \":*)",
+      "Bash(npm --version)",
+      "Skill(update-config)"
+    ]
+  }
+}

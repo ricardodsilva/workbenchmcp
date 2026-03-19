@@ -1,0 +1,17 @@
+{
+  "name": "mymcp",
+  "version": "1.0.0",
+  "type": "module",
+  "bin": {
+    "mymcp": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "diff": "^8.0.3",
+    "dotenv": "^16.4.7",
+    "mssql": "^11.0.1"
+  }
+}
